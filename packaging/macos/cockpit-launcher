@@ -1,0 +1,18 @@
+#!/bin/bash
+# The CockPit.app launcher: starts the bundled WezTerm with the CockPit config.
+# (c) 2026 Laden AS, released under the MIT License.
+set -euo pipefail
+CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
+RES="$CONTENTS/Resources"
+WEZ="$RES/WezTerm.app/Contents/MacOS/wezterm-gui"
+[ -x "$WEZ" ] || WEZ="/Applications/WezTerm.app/Contents/MacOS/wezterm-gui"
+if [ ! -x "$WEZ" ]; then
+  osascript -e 'display alert "The CockPit" message "WezTerm was not found inside the app or in /Applications. Download it from wezterm.org."' >/dev/null 2>&1 || true
+  exit 127
+fi
+USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/the-cockpit"
+mkdir -p "$USER_DIR"
+for f in connections.lua agents.lua python.lua local.lua; do
+  [ -e "$USER_DIR/$f" ] || cp "$RES/cockpit/config/examples/$f" "$USER_DIR/$f" 2>/dev/null || true
+done
+exec "$WEZ" --config-file "$RES/cockpit/config/cockpit.lua" start --always-new-process --class the-cockpit --cwd "$HOME"

@@ -1,0 +1,20 @@
+Package: the-cockpit
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: Laden AS <post@laden.no>
+Installed-Size: @SIZE@
+Recommends: wezterm, fish, python3, openssh-client, less
+Homepage: https://laden.no/portefolje/the-cockpit/
+Description: emerald terminal cockpit built on WezTerm
+ The CockPit turns WezTerm into a green, frameless terminal cockpit with a
+ right-click menu for tabs, splits and layouts, fish as the default shell,
+ Python learning helpers, optional AI command-line tool discovery, explicit
+ SSH connections and a read-only hardware overview.
+ .
+ WezTerm itself is not in the Debian archive: install it from
+ https://wezterm.org/install/linux.html (signed APT repository) or use the
+ CockPit tarball/AppImage, which bundle it.
+ .
+ (c) 2026 Laden AS, released under the MIT License.

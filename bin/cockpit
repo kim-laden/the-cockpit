@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# The CockPit launcher for Linux and macOS.
+# (c) 2026 Laden AS, released under the MIT License.
+set -euo pipefail
+
+VERSION="1.0.0"
+
+# Resolve this script through symlinks without GNU-only readlink -f.
+self="${BASH_SOURCE[0]}"
+while [ -L "$self" ]; do
+  target="$(readlink "$self")"
+  case "$target" in
+    /*) self="$target" ;;
+    *) self="$(dirname "$self")/$target" ;;
+  esac
+done
+ROOT="$(cd "$(dirname "$self")/.." && pwd)"
+CONFIG="$ROOT/config/cockpit.lua"
+
+usage() {
+  cat <<USAGE
+The CockPit $VERSION - an emerald terminal cockpit built on WezTerm.
+
+Usage: cockpit [option]
+  (no option)        open The CockPit with your local shell (fish when installed)
+  --ssh DEST         open an explicit SSH session (DEST = ~/.ssh/config alias or user@host)
+  --hardware         read-only local hardware overview
+  --version          print the version
+  --help             this help
+  -- PROGRAM [ARGS]  run PROGRAM inside The CockPit
+
+Inside: right-click or F12 (or Ctrl+Alt+Space) opens the menu.
+Set COCKPIT_WEZTERM=/path/to/wezterm to pick a specific WezTerm.
+USAGE
+}
+
+find_wezterm() {
+  if [ -n "${COCKPIT_WEZTERM:-}" ] && [ -x "$COCKPIT_WEZTERM" ]; then
+    printf '%s\n' "$COCKPIT_WEZTERM"; return 0
+  fi
+  local bundled=(
+    "$ROOT/wezterm/usr/bin/wezterm"
+    "$ROOT/../WezTerm.app/Contents/MacOS/wezterm"
+  )
+  # Linux: a distro/system WezTerm usually integrates best; the bundled one is the fallback.
+  if [ "$(uname -s)" != "Darwin" ] && command -v wezterm >/dev/null 2>&1; then
+    command -v wezterm; return 0
+  fi
+  local c
+  for c in "${bundled[@]}" \
+           "/Applications/WezTerm.app/Contents/MacOS/wezterm" \
+           "$HOME/Applications/WezTerm.app/Contents/MacOS/wezterm"; do
+    if [ -x "$c" ]; then printf '%s\n' "$c"; return 0; fi
+  done
+  if command -v wezterm >/dev/null 2>&1; then command -v wezterm; return 0; fi
+  return 1
+}
+
+prog=()
+case "${1:-}" in
+  ""|--local) ;;
+  --ssh)
+    dest="${2:-}"
+    if ! printf '%s' "$dest" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._@:-]*$'; then
+      echo "cockpit: --ssh needs an alias or user@host (no leading '-')" >&2; exit 2
+    fi
+    prog=(ssh -a -o ForwardAgent=no -o ForwardX11=no -o StrictHostKeyChecking=ask -- "$dest") ;;
+  --hardware)
+    py="$(command -v python3 || command -v python || true)"
+    if [ -z "$py" ]; then echo "cockpit: the hardware overview needs Python 3" >&2; exit 127; fi
+    # shellcheck disable=SC2016  # $0/$1 are expanded by the inner sh, on purpose
+    prog=(/bin/sh -c '"$0" "$1"; printf "\nPress Enter to close..."; read -r _' "$py" "$ROOT/tools/cockpit-hardware.py") ;;
+  --version) echo "The CockPit $VERSION"; exit 0 ;;
+  --help|-h) usage; exit 0 ;;
+  --) shift; prog=("$@") ;;
+  *) echo "cockpit: unknown option '$1' (try --help)" >&2; exit 2 ;;
+esac
+
+if ! WEZ="$(find_wezterm)"; then
+  cat >&2 <<'MSG'
+The CockPit needs WezTerm, and none was found.
+Install it from https://wezterm.org/install/ (or use a CockPit download that bundles it),
+or set COCKPIT_WEZTERM=/path/to/wezterm.
+MSG
+  exit 127
+fi
+
+args=(--config-file "$CONFIG" start --always-new-process --class the-cockpit --cwd "$HOME")
+if [ "${#prog[@]}" -gt 0 ]; then args+=(-- "${prog[@]}"); fi
+exec "$WEZ" "${args[@]}"

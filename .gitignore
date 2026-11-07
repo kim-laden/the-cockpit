@@ -1,0 +1,24 @@
+# Build output: attach these to a GitHub release instead of committing them.
+dist/
+build/
+*.AppImage
+*.deb
+*.zip
+*.tar.gz
+# Downloaded upstream WezTerm assets used while packaging
+vendor/
+# Python / editor noise
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+# Never commit personal settings or secrets
+config/connections.lua
+config/local.lua
+*.pem
+*.key
+id_*
+.env

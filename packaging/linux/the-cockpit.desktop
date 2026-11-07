@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=The CockPit
+GenericName=Terminal
+Comment=Emerald terminal cockpit built on WezTerm
+Exec=@EXEC@
+Icon=the-cockpit
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;wezterm;fish;python;ssh;
+StartupWMClass=the-cockpit
+StartupNotify=true
+Actions=hardware;
+
+[Desktop Action hardware]
+Name=Hardware overview (read-only)
+Exec=@EXEC@ --hardware
