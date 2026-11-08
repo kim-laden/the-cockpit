@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# The CockPit IPython helper: python -m IPython in the chosen interpreter. No fallback.
+# © 2026 Laden AS, MIT.
+set -euo pipefail
+PY=${1:-python3}
+LEARN="${XDG_DATA_HOME:-$HOME/.local/share}/the-cockpit/venv-py311/bin/python"
+if [ "$PY" = project ]; then
+  for c in .venv/bin/python venv/bin/python .venv/Scripts/python.exe venv/Scripts/python.exe; do
+    [ -x "$c" ] && PY="$PWD/$c" && break
+  done
+  if [ "$PY" = project ]; then
+    echo "The CockPit: no .venv/ or venv/ in $PWD"
+    read -rp "Press Enter to close" || true
+    exit 1
+  fi
+fi
+case "$PY" in
+  python3.11) PY="$LEARN" ;;
+esac
+command -v "$PY" >/dev/null 2>&1 || [ -x "$PY" ] || {
+  echo "The CockPit: interpreter not found: $PY"
+  read -rp "Press Enter to close" || true
+  exit 1
+}
+if ! "$PY" -c 'import IPython' 2>/dev/null; then
+  exe=$("$PY" -c 'import sys;print(sys.executable)')
+  echo "The CockPit: IPython is not installed for $exe"
+  if "$PY" -c 'import sys;sys.exit(0 if sys.prefix!=sys.base_prefix else 1)'; then
+    echo "This is a virtualenv. To add it yourself:  $PY -m pip install ipython"
+  else
+    echo "System Python is externally managed on many distros."
+    echo "Create the CockPit learning env (once):"
+    echo "  python3.11 -m venv ~/.local/share/the-cockpit/venv-py311"
+    echo "  ~/.local/share/the-cockpit/venv-py311/bin/python -m pip install ipython"
+    echo "Or use: cockpit-ipython project   inside a project venv that has IPython."
+  fi
+  read -rp "Press Enter to close" || true
+  exit 1
+fi
+echo "The CockPit IPython — $("$PY" -c 'import sys,IPython;print(sys.executable,\"IPython\",IPython.__version__)')  cwd: $PWD"
+exec "$PY" -m IPython "${@:2}"

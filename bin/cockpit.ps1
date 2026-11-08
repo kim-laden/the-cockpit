@@ -4,11 +4,12 @@
 param(
   [string]$Ssh,
   [switch]$Hardware,
+  [string]$IPython,
   [switch]$Version,
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Program
 )
 $ErrorActionPreference = 'Stop'
-$CockpitVersion = '1.0.0'
+$CockpitVersion = '1.1.0'
 $Root = Split-Path -Parent $PSScriptRoot
 $Config = Join-Path $Root 'config\cockpit.lua'
 
@@ -30,6 +31,14 @@ $argv = @('--config-file', $Config, 'start', '--always-new-process', '--class', 
 if ($Ssh) {
   if ($Ssh -notmatch '^[A-Za-z0-9][A-Za-z0-9._@:-]*$') { Write-Error "-Ssh needs an alias or user@host"; exit 2 }
   $argv += @('--', 'ssh.exe', '-a', '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'StrictHostKeyChecking=ask', '--', $Ssh)
+} elseif ($IPython) {
+  $py = $IPython
+  if ($py -eq 'project') {
+    $py = @('.venv\Scripts\python.exe', 'venv\Scripts\python.exe') | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $py) { throw 'No project .venv or venv in the current folder.' }
+    $py = (Resolve-Path -LiteralPath $py).Path
+  }
+  $argv += @('--', $py, '-m', 'IPython')
 } elseif ($Hardware) {
   $py = Get-Command py.exe -ErrorAction SilentlyContinue
   if (-not $py) { $py = Get-Command python.exe -ErrorAction SilentlyContinue }
