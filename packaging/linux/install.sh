@@ -35,7 +35,9 @@ rm -rf "${APP:?}/bin" "${APP:?}/config" "${APP:?}/docs" "${APP:?}/tools" "${APP:
 cp -R "$HERE/bin" "$HERE/config" "$HERE/docs" "$HERE/tools" "$HERE/assets" "$APP/"
 rm -rf "${APP:?}/licenses"; cp -R "$HERE/licenses" "$APP/"
 cp "$HERE/LICENSE" "$HERE/README.md" "$HERE/CHANGELOG.md" "$HERE/THIRD_PARTY_NOTICES.md" "$HERE/VERSION" "$APP/"
-chmod +x "$APP/bin/cockpit" "$APP/tools/cockpit-hardware.py"
+chmod +x "$APP/bin/cockpit" "$APP/tools/cockpit-hardware.py" "$APP/tools/cockpit-journal" "$APP/tools/cockpit-ipython"
+ln -sf "$APP/tools/cockpit-journal" "$BIN/cockpit-journal"
+ln -sf "$APP/tools/cockpit-ipython" "$BIN/cockpit-ipython"
 
 appimage="$(find "$HERE/wezterm" -maxdepth 1 -name 'WezTerm-*.AppImage' 2>/dev/null | head -n 1 || true)"
 want_bundled="no"

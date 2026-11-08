@@ -2,30 +2,38 @@
 
 All notable changes to The CockPit are listed here. Versions follow semantic versioning.
 
+## [1.1.0] — 2026-11-08
+
+### Added
+- **IPython workspace**: menu actions and `cockpit --ipython` / `cockpit-ipython` run
+  `python -m IPython` in the interpreter you pick (system Python, project `.venv`/`venv`,
+  or an optional CockPit learning venv). No silent fallback to another environment.
+  If IPython is missing, you get clear install instructions — project envs are never
+  modified automatically.
+- **Intel Journal** (local Markdown, opt-in): notes, selection capture, case label,
+  folder picker, and `cockpit-journal run -- …` for command logging. Dedicated
+  **Intel: start capture session (new tab)** logs printed terminal output while ON;
+  capture defaults to OFF. Passwords typed with no echo are not recorded. Journals
+  stay under `~/Documents/TheCockPit/Intel` (configurable). Symlinked destinations
+  refused. Warning: logged output may include secrets; cloud-synced folders sync them.
+- Window title branding shows **The CockPit** (pane status when available).
+
+### Fixed
+- Capture sessions now call util-linux `script` correctly.
+- Intel menu actions handle return values properly.
+- Helper tools are found relative to the package, wherever it is installed.
+
+### Notes
+- Built on WezTerm (MIT) by Wez Furlong — unchanged as the terminal engine.
+- Existing 1.0.0 features (Python REPL picker, optional AI tutor, explicit SSH,
+  hardware overview, layouts) are preserved.
+- Capture does not hook every shell or read history; WezTerm has no live per-pane
+  output API, so capture uses a dedicated labelled tab.
+
 ## [1.0.0] — 2026-11-07
 
 First public, open-source release. © 2026 Laden AS, released under the MIT License.
 
 ### Added
-- Emerald CockPit theme for WezTerm: green-on-black palette, frameless window with
-  resize borders, JetBrains Mono, subtle transparency.
-- CockPit menu on right-click, F12 or Ctrl+Alt+Space: tabs, splits, three ready-made
-  layouts, pane navigation and resizing, clipboard, scrollback search, font size,
-  transparency, title bar, window size, fullscreen.
-- fish as the default shell when installed; falls back to your login shell on
-  Linux/macOS and to PowerShell on Windows, with WSL, Windows PowerShell and
-  Command Prompt profiles.
-- Python learning: interpreter discovery, one-click REPLs, project `.venv`/`venv`
-  launcher, a quick-start cheatsheet for common syntax errors, and a tutor prompt
-  template.
-- Optional AI CLI discovery (Grok, Claude Code, Codex, Cursor Agent, Gemini, plus
-  your own profiles). Nothing is installed, signed in or sent automatically; a
-  "Python + AI tutor side by side" layout appears when a tool is installed.
-- Explicit-only SSH connections from a user-editable `connections.lua` example
-  (agent and X11 forwarding off, host key confirmation on).
-- `cockpit-hardware`: a read-only, privacy-filtered hardware and driver overview
-  for Linux, macOS and Windows.
-- Packages: Linux `.tar.gz` (user installer), AppImage and `.deb`; Windows `.zip`
-  (installer script and portable launcher); macOS `.zip` with `The CockPit.app`.
-  The `.tar.gz`, AppImage, Windows and macOS packages bundle the official WezTerm
-  20240203-110809-5046fc22 release.
+- Emerald CockPit theme, menu, fish default, Python learning, optional AI CLIs,
+  explicit SSH, hardware overview, and multi-platform packages (see 1.0.0 notes).

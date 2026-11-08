@@ -174,6 +174,100 @@ return function(wezterm, c, P, local_shell)
   add('Learning: edit custom interpreters', edit_user_file('python.lua'))
 
   -- Layout, navigation, clipboard, appearance, window -----------------------
+
+  -- IPython (explicit; python -m IPython in chosen interpreter) ------------
+  local tools_journal = P.join(P.root, 'tools', 'cockpit-journal')
+  local tools_ipy = P.join(P.root, 'tools', 'cockpit-ipython')
+  local function ipy_spec(arg, cwd)
+    local s = local_shell()
+    if P.is_windows then s.args = { arg, '-m', 'IPython' }
+    else s.args = { tools_ipy, arg } end
+    if cwd then s.cwd = cwd end
+    return s
+  end
+  for _, pe in ipairs(py_catalog) do
+    add('IPython: ' .. pe.name .. '  [' .. pe.ver .. ']  (new local tab)', act.SpawnCommandInNewTab(ipy_spec(pe.path)))
+  end
+  if not P.is_windows then
+    add('IPython: Python 3.11 learning venv (if created)  (new local tab)', act.SpawnCommandInNewTab(ipy_spec('python3.11')))
+  end
+  add('IPython: project .venv / venv (current local folder)', callback(function(window, pane)
+    local dir = local_cwd(pane)
+    if not dir then return toast(window, 'The CockPit - IPython', 'No local folder for this pane (SSH panes are ignored).') end
+    if P.is_windows then
+      for _, py in ipairs(P.venv_pythons(dir)) do
+        if P.exists(py) then
+          return window:perform_action(act.SpawnCommandInNewTab(ipy_spec(py, dir)), pane)
+        end
+      end
+      return toast(window, 'The CockPit - IPython', 'No project .venv or venv in this folder.')
+    end
+    window:perform_action(act.SpawnCommandInNewTab(ipy_spec('project', dir)), pane)
+  end))
+
+  -- Intel Journal requires Linux util-linux script, procfs and KDE dialogs.
+  if P.is_linux then
+  add('Intel: start capture session (new tab)  [OPT-IN — logs printed output]',
+      act.SpawnCommandInNewTab((function()
+        local s = local_shell(); s.args = { tools_journal, 'capture' }; return s
+      end)()))
+  add('Intel: stop capture', callback(function(window, pane)
+    local ok, out, err = wezterm.run_child_process({ tools_journal, 'stop' })
+    toast(window, 'The CockPit Intel', (out or err or 'done'):gsub('%s+$',''))
+  end))
+  add('Intel: status', callback(function(window, pane)
+    local ok, out, err = wezterm.run_child_process({ tools_journal, 'status' })
+    toast(window, 'The CockPit Intel', (out or err or '?'):gsub('%s+$',''):sub(1, 900))
+  end))
+  add('Intel: quick note', callback(function(window, pane)
+    local ok, out, err = wezterm.run_child_process({
+      'kdialog', '--textinputbox',
+      'The CockPit Intel note (local; may contain secrets if you type them):', '',
+      '--title', 'The CockPit Intel'
+    })
+    local text = (out or ''):gsub('%s+$','')
+    if not ok or text == '' then return toast(window, 'The CockPit Intel', 'Note cancelled or empty.') end
+    local ok2, out2, err2 = wezterm.run_child_process({ tools_journal, 'note', text })
+    toast(window, 'The CockPit Intel', (out2 or err2 or 'saved'):gsub('%s+$',''))
+  end))
+  add('Intel: save selection → journal', callback(function(window, pane)
+    local text = nil
+    if window.get_selection_text_for_pane then
+      local ok, t = pcall(function() return window:get_selection_text_for_pane(pane) end)
+      if ok then text = t end
+    end
+    if not text or text:match('^%s*$') then
+      return toast(window, 'The CockPit Intel',
+        'No selection. Select text first (selection only — not scrollback).')
+    end
+    local cwd = local_cwd(pane)
+    local args = { tools_journal, 'selection', '--text', text }
+    if cwd then table.insert(args, '--cwd'); table.insert(args, cwd) end
+    local ok, out, err = wezterm.run_child_process(args)
+    toast(window, 'The CockPit Intel', (out or err or 'saved'):gsub('%s+$',''))
+  end))
+  add('Intel: set folder (picker)', callback(function(window, pane)
+    local ok, out, err = wezterm.run_child_process({ tools_journal, 'set-folder', '--gui' })
+    toast(window, 'The CockPit Intel', (out or err or 'done'):gsub('%s+$',''))
+  end))
+  add('Intel: set case label', callback(function(window, pane)
+    local ok, out, err = wezterm.run_child_process({
+      'kdialog', '--inputbox', 'Case label (in today\'s filename; empty clears):', '',
+      '--title', 'The CockPit Intel'
+    })
+    local case = (out or ''):gsub('%s+$','')
+    local ok2, out2, err2 = wezterm.run_child_process({ tools_journal, 'set-case', case })
+    toast(window, 'The CockPit Intel', (out2 or err2 or 'done'):gsub('%s+$',''))
+  end))
+  add('Intel: open today’s journal', callback(function(window, pane)
+    wezterm.run_child_process({ tools_journal, 'open' })
+  end))
+  add('Intel: open folder', callback(function(window, pane)
+    wezterm.run_child_process({ tools_journal, 'open', '--folder' })
+  end))
+  end
+  add('Intel: help / platform availability', document('INTEL.md'))
+
   add('Layout: one local terminal (new tab)', layout(1))
   add('Layout: two local columns (new tab)', layout(2))
   add('Layout: three local panes (new tab)', layout(3))

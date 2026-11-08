@@ -17,6 +17,14 @@ The CockPit turns [WezTerm](https://wezterm.org/) into a calm, green, frameless
 terminal with everything one right-click away. It is local-first: nothing connects,
 signs in, uploads or starts a task unless you pick it.
 
+## New in 1.1.0
+
+New in **1.1.0**: IPython in the chosen Python environment, and an opt-in local
+**Intel Journal** (Markdown notes, selection logging, command wrapper, and a
+dedicated capture tab that stays OFF until you start it). Capture logs printed
+output only — not no-echo password typing. Journals can contain secrets; keep
+the folder local unless you intend to sync.
+
 ## Features
 
 - **Emerald look.** A green-on-black theme, frameless window with thin borders, JetBrains Mono, slight transparency.
@@ -42,15 +50,15 @@ signs in, uploads or starts a task unless you pick it.
 ## Install
 
 Downloads: <https://laden.no/portefolje/the-cockpit/> and the GitHub releases page.
-Check the files against `SHA256SUMS`.
+Check the files against `SHA256SUMS-1.1.0.txt` (1.0.0: `SHA256SUMS`).
 
 | Platform | File | How |
 | --- | --- | --- |
-| Linux (x86_64) | `the-cockpit-1.0.0-linux-x86_64.tar.gz` | `tar -xzf the-cockpit-1.0.0-linux-x86_64.tar.gz && cd the-cockpit-1.0.0-linux-x86_64 && ./install.sh` |
-| Linux (x86_64) | `TheCockPit-1.0.0-x86_64.AppImage` | `chmod +x TheCockPit-1.0.0-x86_64.AppImage && ./TheCockPit-1.0.0-x86_64.AppImage` |
-| Debian/Ubuntu/Kali | `the-cockpit_1.0.0_all.deb` | `sudo apt install ./the-cockpit_1.0.0_all.deb`, plus WezTerm from [its APT repo](https://wezterm.org/install/linux.html) |
-| Windows 10/11 (x64) | `TheCockPit-1.0.0-windows-x64.zip` | Unzip, then right-click `install.ps1` and choose **Run with PowerShell**, or double-click `Start-TheCockPit.cmd` to run it portable |
-| macOS 10.12+ (Apple Silicon & Intel) | `TheCockPit-1.0.0-macOS-universal.zip` | Unzip, drag **The CockPit.app** to Applications, and right-click it and choose **Open** the first time |
+| Linux (x86_64) | `the-cockpit-1.1.0-linux-x86_64.tar.gz` | `tar -xzf the-cockpit-1.1.0-linux-x86_64.tar.gz && cd the-cockpit-1.1.0-linux-x86_64 && ./install.sh` |
+| Linux (x86_64) | `TheCockPit-1.1.0-x86_64.AppImage` | `chmod +x TheCockPit-1.1.0-x86_64.AppImage && ./TheCockPit-1.1.0-x86_64.AppImage` |
+| Debian/Ubuntu/Kali | `the-cockpit_1.1.0_all.deb` | `sudo apt install ./the-cockpit_1.1.0_all.deb`, plus WezTerm from [its APT repo](https://wezterm.org/install/linux.html) |
+| Windows 10/11 (x64) | `TheCockPit-1.1.0-windows-x64.zip` | Unzip, then right-click `install.ps1` and choose **Run with PowerShell**, or double-click `Start-TheCockPit.cmd` to run it portable |
+| macOS 10.12+ (Apple Silicon & Intel) | `TheCockPit-1.1.0-macOS-universal.zip` | Unzip, drag **The CockPit.app** to Applications, and right-click it and choose **Open** the first time |
 
 The tarball, AppImage, Windows and macOS packages bundle the official, unmodified WezTerm
 `20240203-110809-5046fc22` release, so there is nothing else to install. On Linux,
@@ -113,3 +121,11 @@ embeds are in [`licenses/`](licenses/) and summarized in
 
 The name "The CockPit", the icon and the Laden brand belong to Laden AS. Made in Oslo by
 [Laden AS](https://laden.no/).
+
+## 1.1.0 platform support
+
+See [platform differences](docs/PLATFORMS.md). Intel journaling/capture is Linux-only.
+
+## Thank you, Wez
+
+A big thank-you to Wez Furlong and everyone who contributes to [WezTerm](https://github.com/wezterm/wezterm). The CockPit stands on their work: a fast, solid terminal that is open for anyone to build on. Without it, The CockPit would not exist.

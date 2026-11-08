@@ -6,7 +6,7 @@
 --
 -- Two styles:
 --   { label = "Name", host = "server.example.com", user = "me", port = 22 }
---   { label = "Name", alias = "myserver" }   -- uses Host myserver from ~/.ssh/config
+--   { label = "Name", alias = "myserver" }   -- uses Host myserver from your SSH configuration
 return {
   -- { label = "My VPS",  host = "vps.example.com", user = "me", port = 22 },
   -- { label = "Homelab", alias = "homelab" },

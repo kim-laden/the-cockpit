@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""CockPit Intel Journal — local Markdown capture for opted-in commands and capture sessions.
+
+WARNING: Logged terminal output may include secrets (tokens, passwords pasted visibly,
+API keys, hostnames). Journals are local files; if you point the folder at Dropbox/cloud
+sync, those notes leave the machine. Capture is OFF unless you start it. No redaction.
+
+WezTerm has no live per-pane output API we can hook. Capture uses a dedicated labelled
+tab (script(1) PTY logger). Existing panes are never silently recorded.
+"""
+from __future__ import annotations
+import argparse, fcntl, os, re, shlex, signal, subprocess, sys, tempfile, time
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("Europe/Oslo")
+CONF = Path.home() / ".config/the-cockpit/journal.conf"
+STATE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "cockpit/journal"
+DEFAULT_DIR = Path.home() / "Documents/TheCockPit/Intel"
+MAX_CHUNK = 200_000  # bytes per append body
+ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
+CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+def now() -> datetime:
+    return datetime.now(TZ)
+
+def stamp() -> str:
+    return now().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+def day_name() -> str:
+    return now().strftime("%Y-%m-%d")
+
+def load_conf() -> dict:
+    d = {"folder": str(DEFAULT_DIR), "case": ""}
+    if CONF.is_file() and not CONF.is_symlink():
+        for line in CONF.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.split("=", 1)
+                d[k.strip()] = v.strip()
+    return d
+
+def save_conf(d: dict) -> None:
+    CONF.parent.mkdir(parents=True, exist_ok=True)
+    text = (
+        "# CockPit Intel Journal (local only)\n"
+        "# WARNING: notes may contain secrets; cloud-synced folders sync them.\n"
+        f"folder={d.get('folder', DEFAULT_DIR)}\n"
+        f"case={d.get('case', '')}\n"
+    )
+    fd, tmp = tempfile.mkstemp(dir=str(CONF.parent), prefix=".journal.conf.")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, CONF)
+        os.chmod(CONF, 0o600)
+    except Exception:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
+
+def safe_dir(path: Path) -> Path:
+    path = path.expanduser()
+    # Check the path the user gave before following links.
+    if path.exists() and path.is_symlink():
+        raise SystemExit(f"CockPit journal: refusing symlinked folder: {path}")
+    path = path.resolve(strict=False)
+    if path.exists() and path.is_symlink():
+        raise SystemExit(f"CockPit journal: refusing symlinked folder: {path}")
+    if path.exists() and not path.is_dir():
+        raise SystemExit(f"CockPit journal: not a directory: {path}")
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, 0o700)
+    return path
+
+def journal_path(cfg: dict) -> Path:
+    folder = safe_dir(Path(cfg["folder"]))
+    case = re.sub(r"[^\w.\-]+", "_", (cfg.get("case") or "").strip())[:40]
+    name = f"{day_name()}{('-' + case) if case else ''}-intel.md"
+    p = folder / name
+    if p.is_symlink() or (p.exists() and p.is_symlink()):
+        raise SystemExit(f"CockPit journal: refusing symlinked journal file: {p}")
+    return p
+
+def sanitize(text: str) -> str:
+    text = ANSI_RE.sub("", text)
+    text = CTRL_RE.sub("", text)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+def fence(body: str, lang: str = "text") -> str:
+    body = body.rstrip("\n")
+    ticks = "```"
+    while ticks in body:
+        ticks += "`"
+    return f"{ticks}{lang}\n{body}\n{ticks}\n"
+
+def append_block(title: str, meta: dict, body: str) -> Path:
+    cfg = load_conf()
+    path = journal_path(cfg)
+    if len(body.encode("utf-8", "replace")) > MAX_CHUNK:
+        body = body.encode("utf-8", "replace")[:MAX_CHUNK].decode("utf-8", "replace")
+        body += "\n\n… [truncated by CockPit journal — output exceeded size limit]\n"
+    body = sanitize(body)
+    lines = [f"## {title}", "", f"- **when:** {stamp()}", f"- **host:** {os.uname().nodename}"]
+    for k, v in meta.items():
+        if v is None or v == "": continue
+        lines.append(f"- **{k}:** {v}")
+    lines += ["", body.rstrip(), "", "---", ""]
+    block = "\n".join(lines)
+    STATE.mkdir(parents=True, exist_ok=True)
+    new = not path.exists()
+    with open(path, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        if new or f.tell() == 0 or path.stat().st_size == 0:
+            hdr = (
+                f"# CockPit Intel — {day_name()}\n\n"
+                f"_Local journal. Outputs may contain secrets. Capture is opt-in._\n\n"
+                f"- **folder:** `{path.parent}`\n"
+                f"- **case:** {cfg.get('case') or '(none)'}\n\n---\n\n"
+            )
+            f.write(hdr)
+            try: os.fchmod(f.fileno(), 0o600)
+            except OSError: pass
+        f.write(block)
+        f.flush(); os.fsync(f.fileno())
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    if new:
+        try: os.chmod(path, 0o600)
+        except OSError: pass
+    return path
+
+def cmd_status(_: argparse.Namespace) -> int:
+    cfg = load_conf()
+    try:
+        path = journal_path(cfg)
+    except SystemExit as e:
+        print(e); return 1
+    print(f"folder:  {cfg['folder']}")
+    print(f"case:    {cfg.get('case') or '(none)'}")
+    print(f"today:   {path}  ({'exists' if path.exists() else 'not created yet'})")
+    print(f"config:  {CONF}")
+    active = list(STATE.glob("capture-*.pid"))
+    if not active:
+        print("capture: OFF (no active capture sessions)")
+    else:
+        for pf in active:
+            try:
+                pid = int(pf.read_text().strip())
+                running = Path(f"/proc/{pid}").exists()
+            except Exception:
+                running, pid = False, "?"
+            print(f"capture: ON  pid={pid}  state={pf.name}  {'alive' if running else 'stale'}")
+    print("\nWARNING: Logged output may include passwords pasted visibly, tokens, and keys.")
+    print("If the journal folder is cloud-synced, those notes sync too. No automatic redaction.")
+    return 0
+
+def cmd_set_folder(ns: argparse.Namespace) -> int:
+    cfg = load_conf()
+    folder = ns.folder
+    if not folder:
+        # interactive chooser — only when user invokes; not for unattended tests
+        if ns.gui:
+            r = subprocess.run(
+                ["kdialog", "--getexistingdirectory", cfg["folder"], "--title", "CockPit Intel folder"],
+                capture_output=True, text=True)
+            if r.returncode != 0 or not r.stdout.strip():
+                print("Cancelled."); return 1
+            folder = r.stdout.strip()
+        else:
+            print(f"Current: {cfg['folder']}", file=sys.stderr)
+            folder = input("New folder path: ").strip()
+            if not folder: print("Cancelled."); return 1
+    path = safe_dir(Path(folder))
+    cfg["folder"] = str(path)
+    save_conf(cfg)
+    print(f"Intel folder set to: {path}")
+    return 0
+
+def cmd_set_case(ns: argparse.Namespace) -> int:
+    cfg = load_conf()
+    case = ns.case if ns.case is not None else input("Case label (empty clears): ").strip()
+    cfg["case"] = case
+    save_conf(cfg)
+    print(f"Case label: {case or '(none)'}")
+    return 0
+
+def cmd_note(ns: argparse.Namespace) -> int:
+    text = ns.text
+    if not text:
+        print("Enter note (end with Ctrl-D):", file=sys.stderr)
+        text = sys.stdin.read()
+    if not text.strip():
+        print("Empty note — nothing written."); return 1
+    tags = ns.tags or ""
+    p = append_block("Note", {"cwd": os.getcwd(), "tags": tags, "source": "manual-note"}, text)
+    print(f"Appended note → {p}")
+    return 0
+
+def cmd_selection(ns: argparse.Namespace) -> int:
+    text = ns.text if ns.text is not None else sys.stdin.read()
+    if not text or not text.strip():
+        print("CockPit journal: no selection to capture (select text in the terminal first).")
+        return 1
+    p = append_block("Selection", {"cwd": ns.cwd or os.getcwd(), "source": "selection"}, text)
+    print(f"Appended selection → {p}")
+    return 0
+
+def cmd_run(ns: argparse.Namespace) -> int:
+    if not ns.command:
+        print("Usage: cockpit-journal run -- command [args...]", file=sys.stderr); return 2
+    cmd = ns.command
+    cwd = os.getcwd()
+    print(f"[intel] logging: {' '.join(cmd)}", file=sys.stderr)
+    # stream to terminal and capture
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1, cwd=cwd)
+    chunks: list[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write(line); sys.stdout.flush()
+        chunks.append(line)
+    rc = proc.wait()
+    body = "".join(chunks)
+    if not body.strip():
+        body = "(no output)\n"
+    p = append_block(
+        "Command",
+        {"cwd": cwd, "exit": str(rc), "argv": " ".join(cmd), "source": "run-wrapper"},
+        fence(body),
+    )
+    print(f"[intel] appended → {p}  (exit {rc})", file=sys.stderr)
+    return rc
+
+def _capture_ids() -> list[Path]:
+    return sorted(STATE.glob("capture-*.pid"))
+
+def cmd_capture(ns: argparse.Namespace) -> int:
+    """Start a dedicated capture shell. Logs PTY output (not raw keystrokes / no-echo input)."""
+    STATE.mkdir(parents=True, exist_ok=True)
+    sid = now().strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}"
+    raw = STATE / f"capture-{sid}.raw"
+    pidf = STATE / f"capture-{sid}.pid"
+    meta = STATE / f"capture-{sid}.meta"
+    shell = os.environ.get("SHELL", "/bin/fish")
+    cfg = load_conf()
+    try:
+        jpath = journal_path(cfg)
+    except SystemExit as e:
+        print(e, file=sys.stderr); return 1
+
+    # Visible tab title when running inside WezTerm
+    pane = os.environ.get("WEZTERM_PANE")
+    if pane:
+        subprocess.run(["wezterm", "cli", "set-tab-title", "● INTEL CAPTURE"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("=" * 60, flush=True)
+    print("CockPit INTEL CAPTURE — ON", flush=True)
+    print("Everything printed in this tab is appended to the local journal.", flush=True)
+    print("Passwords typed with no echo are NOT recorded; pasted/visible secrets ARE.", flush=True)
+    print(f"Journal: {jpath}", flush=True)
+    print("Stop: exit this shell (Ctrl-D) or: cockpit-journal stop", flush=True)
+    print("=" * 60, flush=True)
+
+    # write pid of the upcoming script process after spawn; track ourselves as session leader
+    meta.write_text(f"cwd={os.getcwd()}\nshell={shell}\nstarted={stamp()}\n", encoding="utf-8")
+    os.chmod(meta, 0o600)
+    pidf.write_text(str(os.getpid()), encoding="utf-8")
+    os.chmod(pidf, 0o600)
+
+    # Start fish under script; -f flushes so we can watch live
+    # Use -- to avoid option injection
+    env = os.environ.copy()
+    env["COCKPIT_INTEL_CAPTURE"] = sid
+    env["COCKPIT_INTEL_ON"] = "1"
+    # Prefer fish -l if fish
+    if "fish" in shell:
+        inner = [shell, "-l"]
+    else:
+        inner = [shell, "-l"]
+
+    # Watcher: periodically append new raw bytes
+    last_pos = 0
+    stop = {"v": False}
+
+    def flush_new(final: bool = False) -> None:
+        nonlocal last_pos
+        if not raw.exists():
+            return
+        with open(raw, "rb") as f:
+            f.seek(last_pos)
+            data = f.read()
+            last_pos = f.tell()
+        if not data and not final:
+            return
+        text = data.decode("utf-8", "replace")
+        # strip script's start/end banners if present
+        text = re.sub(r"^Script (started|done) on .*\n", "", text, flags=re.M)
+        if not text.strip() and not final:
+            return
+        label = "Capture session (final)" if final else "Capture session (live)"
+        append_block(
+            label,
+            {"cwd": os.getcwd(), "session": sid, "source": "capture-tab",
+             "active": "no" if final else "yes"},
+            fence(text or "(session ended with no further output)"),
+        )
+
+    def on_sig(*_):
+        stop["v"] = True
+
+    signal.signal(signal.SIGTERM, on_sig)
+    signal.signal(signal.SIGINT, on_sig)
+
+    # open raw with secure perms
+    raw.touch(mode=0o600)
+    # script -q -f -O raw -- shell ...
+    proc = subprocess.Popen(
+        ["script", "-q", "-f", "-O", str(raw), "-c", shlex.join(inner)],
+        env=env,
+    )
+    pidf.write_text(str(proc.pid), encoding="utf-8")
+
+    try:
+        while proc.poll() is None and not stop["v"]:
+            time.sleep(2.0)
+            try:
+                flush_new(False)
+            except Exception as e:
+                print(f"[intel] watch error: {e}", file=sys.stderr)
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+            try: proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill(); proc.wait()
+    finally:
+        try: flush_new(True)
+        except Exception as e:
+            print(f"[intel] final flush error: {e}", file=sys.stderr)
+        for p in (pidf,):
+            try: p.unlink()
+            except OSError: pass
+        print("=" * 60)
+        print("CockPit INTEL CAPTURE — OFF")
+        print(f"Journal: {jpath}")
+        print("=" * 60)
+    return proc.returncode or 0
+
+def cmd_stop(_: argparse.Namespace) -> int:
+    found = 0
+    for pf in _capture_ids():
+        try:
+            pid = int(pf.read_text().strip())
+        except Exception:
+            pf.unlink(missing_ok=True); continue
+        if Path(f"/proc/{pid}").exists():
+            os.kill(pid, signal.SIGTERM)
+            print(f"Sent stop to capture pid {pid}")
+            found += 1
+        else:
+            pf.unlink(missing_ok=True)
+    if not found:
+        print("No active capture sessions.")
+        return 1
+    return 0
+
+def cmd_open(ns: argparse.Namespace) -> int:
+    cfg = load_conf()
+    path = journal_path(cfg)
+    if ns.folder_only:
+        target = str(Path(cfg["folder"]))
+    else:
+        if not path.exists():
+            append_block("Opened", {"source": "open"}, "_Journal created._\n")
+        target = str(path)
+    # prefer xdg-open; fall back to printing path
+    if subprocess.call(["xdg-open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        print(target)
+    return 0
+
+def cmd_help_long(_: argparse.Namespace) -> int:
+    print(__doc__)
+    print("""
+Commands:
+  cockpit-journal status
+  cockpit-journal set-folder [--gui] [PATH]
+  cockpit-journal set-case [LABEL]
+  cockpit-journal note [-t TAGS] [TEXT]
+  cockpit-journal selection [--cwd DIR]   # reads stdin / --text
+  cockpit-journal run -- CMD [ARGS...]    # streams + logs argv/cwd/exit/output
+  cockpit-journal capture                 # NEW TAB: opt-in live PTY output log
+  cockpit-journal stop                    # stop active capture session(s)
+  cockpit-journal open [--folder]
+
+Menu (CockPit F12 / right-click): Intel: …
+Default folder: ~/Documents/CockPit/Intel
+""")
+    return 0
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="cockpit-journal", description="CockPit local Intel Markdown journal")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("status"); sub.add_parser("help")
+    p = sub.add_parser("set-folder"); p.add_argument("folder", nargs="?"); p.add_argument("--gui", action="store_true")
+    p = sub.add_parser("set-case"); p.add_argument("case", nargs="?")
+    p = sub.add_parser("note"); p.add_argument("text", nargs="?"); p.add_argument("-t", "--tags", default="")
+    p = sub.add_parser("selection"); p.add_argument("--text"); p.add_argument("--cwd")
+    p = sub.add_parser("run"); p.add_argument("command", nargs=argparse.REMAINDER)
+    sub.add_parser("capture"); sub.add_parser("stop")
+    p = sub.add_parser("open"); p.add_argument("--folder", dest="folder_only", action="store_true")
+
+    ns = ap.parse_args()
+    # strip leading -- from run
+    if ns.cmd == "run" and ns.command and ns.command[0] == "--":
+        ns.command = ns.command[1:]
+    return {
+        "status": cmd_status, "help": cmd_help_long, "set-folder": cmd_set_folder,
+        "set-case": cmd_set_case, "note": cmd_note, "selection": cmd_selection,
+        "run": cmd_run, "capture": cmd_capture, "stop": cmd_stop, "open": cmd_open,
+    }[ns.cmd](ns)
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        sys.exit(0)
+    except KeyboardInterrupt:
+        sys.exit(130)
